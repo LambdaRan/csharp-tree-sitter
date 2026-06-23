@@ -1,0 +1,6 @@
+[submodule "TSBind/tree-sitter/submodule/tree-sitter-lua"]
+	path = TSBind/tree-sitter/submodule/tree-sitter-lua
+	url = https://github.com/tree-sitter-grammars/tree-sitter-lua.git
+[submodule "TSBind/tree-sitter/submodule/tree-sitter"]
+	path = TSBind/tree-sitter/submodule/tree-sitter
+	url = https://github.com/tree-sitter/tree-sitter.git
