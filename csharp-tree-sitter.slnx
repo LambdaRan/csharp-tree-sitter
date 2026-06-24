@@ -1,5 +1,7 @@
 <Solution>
   <Folder Name="/解决方案项/">
+    <File Path=".gitignore" />
+    <File Path=".gitmodules" />
     <File Path="LICENSE" />
     <File Path="README.md" />
   </Folder>

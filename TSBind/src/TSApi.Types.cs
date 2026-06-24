@@ -12,26 +12,26 @@ using System.Runtime.InteropServices;       // StructLayout, MarshalAs
 // Enums
 // =====================
 
-public enum TSInputEncoding {
+public enum TSInputEncoding : int {
     TSInputEncodingUTF8,
     TSInputEncodingUTF16LE,
     TSInputEncodingUTF16BE,
     TSInputEncodingCustom
 }
 
-public enum TSSymbolType {
+public enum TSSymbolType : int {
     TSSymbolTypeRegular,
     TSSymbolTypeAnonymous,
     TSSymbolTypeSupertype,
     TSSymbolTypeAuxiliary,
 }
 
-public enum TSLogType {
+public enum TSLogType : int {
     TSLogTypeParse,
     TSLogTypeLex,
 }
 
-public enum TSQuantifier {
+public enum TSQuantifier : int {
     TSQuantifierZero = 0,
     TSQuantifierZeroOrOne,
     TSQuantifierZeroOrMore,
@@ -39,13 +39,13 @@ public enum TSQuantifier {
     TSQuantifierOneOrMore,
 }
 
-public enum TSQueryPredicateStepType {
+public enum TSQueryPredicateStepType : int {
     TSQueryPredicateStepTypeDone,
     TSQueryPredicateStepTypeCapture,
     TSQueryPredicateStepTypeString,
 }
 
-public enum TSQueryError {
+public enum TSQueryError : int {
     TSQueryErrorNone = 0,
     TSQueryErrorSyntax,
     TSQueryErrorNodeType,
@@ -96,15 +96,18 @@ public struct TSInputEdit {
 [StructLayout(LayoutKind.Sequential)]
 public struct TSNode {
     public InlineArray4_UInt32 context;
-    public IntPtr id;
-    public IntPtr tree;
+    public IntPtr id; // 原 const void*
+    public IntPtr tree; // 原 const TSTree*
 }
 
 [StructLayout(LayoutKind.Sequential)]
 public struct TSTreeCursor {
-    public IntPtr tree;
-    public IntPtr id;
+    public IntPtr tree; // 原 const void*
+    public IntPtr id; // 原 const void*（注意：实际是内部 stack.contents 指针，不代表当前节点）
     public InlineArray3_UInt32 context;
+    // context[0] = stack.size（栈深度，1=root，2=子节点…）
+    // context[1] = stack.capacity
+    // context[2] = root_alias_symbol
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -118,7 +121,7 @@ public struct TSQueryMatch {
     public uint id;
     public ushort pattern_index;
     public ushort capture_count;
-    public IntPtr captures;  // const TSQueryCapture*
+    public IntPtr captures; // 原 const TSQueryCapture*
 }
 
 [StructLayout(LayoutKind.Sequential)]
