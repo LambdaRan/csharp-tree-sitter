@@ -40,20 +40,20 @@ public static partial class TSApi
     // 位置信息
     // =====================
 
-    /// <summary>获取节点的起始字节偏移。</summary>
+    /// <summary>从零计数，获取节点的起始字节偏移。</summary>
     // ts_node_start_byte → uint
     [LibraryImport(LibraryName)]
     public static partial uint ts_node_start_byte(TSNode self);
 
+	/// <summary>从零计数，获取节点的结束字节偏移。</summary>
+	// ts_node_end_byte → uint
+	[LibraryImport(LibraryName)]
+	public static partial uint ts_node_end_byte(TSNode self);
+	
     /// <summary>获取节点的起始位置（行、列）。</summary>
-    // ts_node_start_point → TSPoint
-    [LibraryImport(LibraryName)]
+	// ts_node_start_point → TSPoint
+	[LibraryImport(LibraryName)]
     public static partial TSPoint ts_node_start_point(TSNode self);
-
-    /// <summary>获取节点的结束字节偏移。</summary>
-    // ts_node_end_byte → uint
-    [LibraryImport(LibraryName)]
-    public static partial uint ts_node_end_byte(TSNode self);
 
     /// <summary>获取节点的结束位置（行、列）。</summary>
     // ts_node_end_point → TSPoint

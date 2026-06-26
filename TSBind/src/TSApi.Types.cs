@@ -71,8 +71,10 @@ public struct InlineArray3_UInt32 { private uint _element0; }
 
 [StructLayout(LayoutKind.Sequential)]
 public struct TSPoint {
-    public uint row;
-    public uint column;
+	// 表示给定位置之前的换行符数量
+	public uint row;
+	// 表示该位置与行首之间的字节数
+	public uint column;
 }
 
 [StructLayout(LayoutKind.Sequential)]

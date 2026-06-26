@@ -45,7 +45,10 @@ namespace TSBind
 					return false;
 				}
 				try {
-					PostOrderTraverse(filetext, TSApi.ts_tree_root_node(tree));
+					var root = TSApi.ts_tree_root_node(tree);
+					//PostOrderTraverse(filetext, root);
+					Console.Error.WriteLine("\n=== Tree View ===");
+					PrintTree(filetext, root);
 				}
 				finally {
 					TSApi.ts_tree_delete(tree);
@@ -68,13 +71,59 @@ namespace TSBind
 			// 再打印当前节点
 			var startOffset = TSApi.ts_node_start_byte(node) / sizeof(ushort);
 			var endOffset = TSApi.ts_node_end_byte(node) / sizeof(ushort);
-			var point = TSApi.ts_node_start_point(node);
+			var startpoint = TSApi.ts_node_start_point(node);
+			var endpoint = TSApi.ts_node_end_point(node);
+			var nodetype = Marshal.PtrToStringUTF8(TSApi.ts_node_type(node));
 			var isymbol = TSApi.ts_node_symbol(node);
-			var type = isymbol == ushort.MaxValue
+			var symboltype = isymbol == ushort.MaxValue
 				? "ERROR"
 				: Marshal.PtrToStringUTF8(TSApi.ts_language_symbol_name(_LuaLanguage, isymbol));
 			var span = filetext.AsSpan((int)startOffset, (int)(endOffset - startOffset));
-			Console.Error.WriteLine($"Node -> point:{point.row+1}-{point.column} type: {type}, symbol: {span.ToString()}");
+			Console.Error.WriteLine($"Node ------>\n" +
+				$"childCount:{childCount}\n" +
+				$"startpoint:{startpoint.row+1}-{startpoint.column}\n" +
+				$"endpoint:{endpoint.row+1}-{endpoint.column}\n" +
+				$"startOffset: {startOffset}, endOffset: {endOffset}\n" +
+				$"nodetype: {nodetype}, symboltype: {symboltype}, symbol: {span.ToString()}");
+		}
+
+		/// <summary>
+		/// 按树形结构打印各节点内容（带缩进和连接符）
+		/// </summary>
+		public static void PrintTree(string filetext, TSNode node, string indent = "", bool isLast = true)
+		{
+			// 构造当前行的连接符
+			string connector = indent.Length == 0 ? "" : (isLast ? "└── " : "├── ");
+
+			var startOffset = TSApi.ts_node_start_byte(node) / sizeof(ushort);
+			var endOffset = TSApi.ts_node_end_byte(node) / sizeof(ushort);
+			var startpoint = TSApi.ts_node_start_point(node);
+			var endpoint = TSApi.ts_node_end_point(node);
+			var nodetype = Marshal.PtrToStringUTF8(TSApi.ts_node_type(node));
+			var isymbol = TSApi.ts_node_symbol(node);
+			var symboltype = isymbol == ushort.MaxValue
+				? "ERROR"
+				: Marshal.PtrToStringUTF8(TSApi.ts_language_symbol_name(_LuaLanguage, isymbol));
+
+			// 截取节点对应的源码文本，过长时截断
+			const int maxLen = 40;
+			var span = filetext.AsSpan((int)startOffset, (int)(endOffset - startOffset));
+			string text = span.Length <= maxLen
+				? span.ToString()
+				: span.Slice(0, maxLen).ToString() + "…";
+			// 将换行替换为可见符号，保持树形输出不被打断
+			text = text.Replace("\r", "").Replace("\n", "\\n");
+			uint childCount = TSApi.ts_node_child_count(node);
+			Console.Error.WriteLine(
+				$"{indent}{connector}{nodetype} {symboltype} " +
+				$"(child:{childCount} startpoint:{startpoint.row + 1}-{startpoint.column} endpoint:{endpoint.row + 1}-{endpoint.column} offset:{startOffset}-{endOffset}) " +
+				$"\"{text}\"");
+
+			// 递归打印子节点
+			string childIndent = indent + (isLast ? "    " : "│   ");
+			for (uint i = 0; i < childCount; i++) {
+				PrintTree(filetext, TSApi.ts_node_child(node, i), childIndent, i == childCount - 1);
+			}
 		}
 	}
 }
