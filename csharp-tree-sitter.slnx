@@ -5,5 +5,9 @@
     <File Path="LICENSE" />
     <File Path="README.md" />
   </Folder>
+  <Project Path="NativeLibs/NativeLibs.csproj" />
   <Project Path="TSBind/TSBind.csproj" />
+  <Project Path="TSBind.Test/lua/TSBind.TestLua.csproj" />
+  <Project Path="TSWrap/TSWrap.csproj" />
+  <Project Path="TSWrap.Test/lua/TSWrap.TestLua.csproj" />
 </Solution>

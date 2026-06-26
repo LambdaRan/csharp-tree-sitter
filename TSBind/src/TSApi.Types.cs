@@ -1,4 +1,4 @@
-namespace TreeSitter.Native;
+namespace TreeSitter.Bind;
 
 using System.Runtime.CompilerServices;      // InlineArray
 using System.Runtime.InteropServices;       // StructLayout, MarshalAs

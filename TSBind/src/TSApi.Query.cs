@@ -1,4 +1,4 @@
-namespace TreeSitter.Native;
+namespace TreeSitter.Bind;
 
 using System.Runtime.InteropServices;
 

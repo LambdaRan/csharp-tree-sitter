@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>TSWrap.TestLua</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../TSWrap/TSWrap.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../NativeLibs/out/tree-sitter.dll" CopyToOutputDirectory="PreserveNewest" Link="tree-sitter.dll" />
+    <None Include="../../NativeLibs/out/tree-sitter-lua.dll" CopyToOutputDirectory="PreserveNewest" Link="tree-sitter-lua.dll" />
+  </ItemGroup>
+
+</Project>
