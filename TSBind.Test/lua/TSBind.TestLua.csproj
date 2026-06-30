@@ -10,7 +10,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../TSBind/TSBind.csproj" />
-    <ProjectReference Include="../../TSWrap/TSWrap.csproj" />
   </ItemGroup>
 
   <ItemGroup>

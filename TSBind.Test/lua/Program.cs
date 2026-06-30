@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
-using TreeSitter.Wrap;
+using TreeSitter.Bind;
 
 namespace TSBind
 {
@@ -12,7 +12,7 @@ namespace TSBind
             var gbk = Encoding.GetEncoding("GBK");
             Console.OutputEncoding = gbk;
             Console.SetError(new StreamWriter(Console.OpenStandardError(), gbk) { AutoFlush = true });
-            Console.WriteLine("=== TSWrap Integration Test ===");
+            Console.WriteLine("=== TSBind Integration Test ===");
 
             if (args.Length < 1)
             {
@@ -27,7 +27,7 @@ namespace TSBind
             }
 
             var filetext = File.ReadAllText(args[0], gbk);
-            TestTSWrap(filetext);
+            TestTSBind(filetext);
         }
 
         [DllImport("tree-sitter-lua.dll", CallingConvention = CallingConvention.Cdecl)]
@@ -35,75 +35,107 @@ namespace TSBind
 
         private static readonly IntPtr _LuaLanguagePtr = tree_sitter_lua();
 
-        public static void TestTSWrap(string filetext)
+        // ---- 辅助方法 ----
+
+        static string ReadUtf8(IntPtr ptr) =>
+            ptr == IntPtr.Zero ? "(null)" : Marshal.PtrToStringUTF8(ptr) ?? "";
+
+        static string FormatPoint(TSPoint p) => $"({p.row}, {p.column})";
+
+        public static void TestTSBind(string filetext)
         {
-            // === 1. Language 封装 ===
-            using var language = new Language(_LuaLanguagePtr);
-            Console.Error.WriteLine($"Language: {language.Name}");
-            Console.Error.WriteLine($"  SymbolCount: {language.SymbolCount}");
-            Console.Error.WriteLine($"  FieldCount: {language.FieldCount}");
-            Console.Error.WriteLine($"  AbiVersion: {language.AbiVersion}");
+            // === 1. Language ===
+            var language = TSApi.ts_language_copy(_LuaLanguagePtr);
+            try
+            {
+                Console.Error.WriteLine($"Language: {ReadUtf8(TSApi.ts_language_name(language))}");
+                Console.Error.WriteLine($"  SymbolCount: {TSApi.ts_language_symbol_count(language)}");
+                Console.Error.WriteLine($"  FieldCount: {TSApi.ts_language_field_count(language)}");
+                Console.Error.WriteLine($"  AbiVersion: {TSApi.ts_language_abi_version(language)}");
 
-            // === 2. Parser 封装 ===
-            using var parser = new Parser(language);
-            Console.Error.WriteLine("\n=== Parser Created ===");
+                // === 2. Parser ===
+                var parser = TSApi.ts_parser_new();
+                try
+                {
+                    TSApi.ts_parser_set_language(parser, language);
+                    Console.Error.WriteLine("\n=== Parser Created ===");
 
-            // === 3. Parse (string 路径, UTF-16LE) ===
-            using var tree = parser.Parse(filetext);
-            Console.Error.WriteLine("\n=== Parse Complete ===");
+                    // === 3. Parse (UTF-16LE) ===
+                    var utf16 = Encoding.Unicode.GetBytes(filetext);
+                    var tree = TSApi.ts_parser_parse_string_encoding(
+                        parser, IntPtr.Zero, utf16, (uint)utf16.Length,
+                        TSInputEncoding.TSInputEncodingUTF16LE);
+                    if (tree == IntPtr.Zero)
+                    {
+                        Console.Error.WriteLine("Parse failed.");
+                        return;
+                    }
+                    try
+                    {
+                        Console.Error.WriteLine("\n=== Parse Complete ===");
 
-            // === 4. Tree 属性 ===
-            var root = tree.RootNode;
-            Console.Error.WriteLine($"RootNode Type: {root.Type}");
-            Console.Error.WriteLine($"RootNode ChildCount: {root.ChildCount}");
-            Console.Error.WriteLine($"RootNode StartPoint: {root.StartPoint}");
-            Console.Error.WriteLine($"RootNode EndPoint: {root.EndPoint}");
+                        // === 4. Tree 属性 ===
+                        var root = TSApi.ts_tree_root_node(tree);
+                        Console.Error.WriteLine($"RootNode Type: {ReadUtf8(TSApi.ts_node_type(root))}");
+                        Console.Error.WriteLine($"RootNode ChildCount: {TSApi.ts_node_child_count(root)}");
+                        Console.Error.WriteLine($"RootNode StartPoint: {FormatPoint(TSApi.ts_node_start_point(root))}");
+                        Console.Error.WriteLine($"RootNode EndPoint: {FormatPoint(TSApi.ts_node_end_point(root))}");
 
-            // === 5. Node 遍历 (TreeCursor) ===
-            Console.Error.WriteLine("\n=== Tree View (TreeCursor) ===");
-            PrintTreeWithCursor(filetext, tree);
+                        // === 5. TreeCursor 遍历 ===
+                        Console.Error.WriteLine("\n=== Tree View (TreeCursor) ===");
+                        PrintTreeWithCursor(filetext, root);
 
-            // === 6. Node API 演示 ===
-            Console.Error.WriteLine("\n=== Node Navigation Demo ===");
-            DemonstrateNodeApi(filetext, root);
+                        // === 6. Node API ===
+                        Console.Error.WriteLine("\n=== Node Navigation Demo ===");
+                        DemonstrateNodeApi(filetext, root);
 
-            // === 7. Query 演示 ===
-            Console.Error.WriteLine("\n=== Query Demo ===");
-            DemonstrateQuery(language, tree);
+                        // === 7. Query (零分配路径) ===
+                        Console.Error.WriteLine("\n=== Query Demo ===");
+                        DemonstrateQuery(language, tree, root);
 
-            // === 8. IEnumerable Matches 路径 ===
-            Console.Error.WriteLine("\n=== IEnumerable Matches ===");
-            DemonstrateQueryMatches(language, tree);
+                        // === 8. Query (手动迭代) ===
+                        Console.Error.WriteLine("\n=== Query Matches ===");
+                        DemonstrateQueryMatches(language, tree, root);
 
-            // === 9. Tree.Copy 和 GetChangedRanges ===
-            Console.Error.WriteLine("\n=== Tree.Copy & GetChangedRanges ===");
-            DemonstrateTreeCopyAndDiff(tree);
+                        // === 9. Tree.Copy & GetChangedRanges ===
+                        Console.Error.WriteLine("\n=== Tree.Copy & GetChangedRanges ===");
+                        DemonstrateTreeCopyAndDiff(tree);
 
-            // === 10. Language 符号查询 ===
-            Console.Error.WriteLine("\n=== Language Symbol Query ===");
-            DemonstrateLanguageSymbols(language);
+                        // === 10. Language 符号查询 ===
+                        Console.Error.WriteLine("\n=== Language Symbol Query ===");
+                        DemonstrateLanguageSymbols(language);
 
-            Console.Error.WriteLine("\n=== All Tests Passed ===");
+                        Console.Error.WriteLine("\n=== All Tests Passed ===");
+                    }
+                    finally { TSApi.ts_tree_delete(tree); }
+                }
+                finally { TSApi.ts_parser_delete(parser); }
+            }
+            finally { TSApi.ts_language_delete(language); }
         }
 
-        static void PrintTreeWithCursor(string filetext, Tree tree)
+        static void PrintTreeWithCursor(string filetext, TSNode root)
         {
-            var root = tree.RootNode;
-            using var cursor = new TreeCursor(root);
-            PrintCursorTree(filetext, cursor, tree, indent: "", isLast: true);
+            var cursor = TSApi.ts_tree_cursor_new(root);
+            try
+            {
+                PrintCursorTree(filetext, ref cursor, indent: "", isLast: true);
+            }
+            finally { TSApi.ts_tree_cursor_delete(ref cursor); }
         }
 
-        static void PrintCursorTree(string filetext, TreeCursor cursor, Tree tree, string indent, bool isLast)
+        static void PrintCursorTree(string filetext, ref TSTreeCursor cursor, string indent, bool isLast)
         {
-            var node = cursor.CurrentNode;
+            var node = TSApi.ts_tree_cursor_current_node(in cursor);
             var connector = indent.Length == 0 ? "" : (isLast ? "└── " : "├── ");
 
-            var fieldName = cursor.CurrentFieldName;
+            var fieldNamePtr = TSApi.ts_tree_cursor_current_field_name(in cursor);
+            var fieldName = fieldNamePtr != IntPtr.Zero ? ReadUtf8(fieldNamePtr) : null;
             var fieldPrefix = fieldName != null ? $"{fieldName}: " : "";
 
-            // 使用 UTF-16LE 模式：字节偏移 ÷ 2 = 字符索引
-            var startOffset = (int)(node.StartByte / 2);
-            var endOffset = (int)(node.EndByte / 2);
+            // UTF-16LE: 字节偏移 ÷ 2 = 字符索引
+            var startOffset = (int)(TSApi.ts_node_start_byte(node) / 2);
+            var endOffset = (int)(TSApi.ts_node_end_byte(node) / 2);
 
             const int maxLen = 40;
             var text = "";
@@ -114,182 +146,250 @@ namespace TSBind
                 text = text.Replace("\r", "").Replace("\n", "\\n");
             }
 
+            var nodeType = ReadUtf8(TSApi.ts_node_type(node));
+            var childCount = TSApi.ts_node_child_count(node);
+            var startPoint = FormatPoint(TSApi.ts_node_start_point(node));
+            var endPoint = FormatPoint(TSApi.ts_node_end_point(node));
+
             Console.Error.WriteLine(
-                $"{indent}{connector}{fieldPrefix}{node.Type} " +
-                $"({node.ChildCount} children, {node.StartPoint}-{node.EndPoint}) " +
+                $"{indent}{connector}{fieldPrefix}{nodeType} " +
+                $"({childCount} children, {startPoint}-{endPoint}) " +
                 $"\"{text}\"");
 
             var childIndent = indent + (isLast ? "    " : "│   ");
 
-            if (cursor.GotoFirstChild())
+            if (TSApi.ts_tree_cursor_goto_first_child(ref cursor))
             {
                 bool hasSibling = true;
                 while (hasSibling)
                 {
-                    var nextSibling = cursor.GotoNextSibling();
-                    PrintCursorTree(filetext, cursor, tree, childIndent, !nextSibling);
+                    var nextSibling = TSApi.ts_tree_cursor_goto_next_sibling(ref cursor);
+                    PrintCursorTree(filetext, ref cursor, childIndent, !nextSibling);
                     if (!nextSibling) hasSibling = false;
                 }
-                cursor.GotoParent();
+                TSApi.ts_tree_cursor_goto_parent(ref cursor);
             }
         }
 
-        static void DemonstrateNodeApi(string filetext, Node root)
+        static void DemonstrateNodeApi(string filetext, TSNode root)
         {
-            if (root.ChildCount > 0)
+            var childCount = TSApi.ts_node_child_count(root);
+            if (childCount > 0)
             {
-                var firstChild = root.Child(0);
-                Console.Error.WriteLine($"First child: {firstChild.Type} at {firstChild.StartPoint}");
+                var firstChild = TSApi.ts_node_child(root, 0);
+                Console.Error.WriteLine($"First child: {ReadUtf8(TSApi.ts_node_type(firstChild))} at {FormatPoint(TSApi.ts_node_start_point(firstChild))}");
 
-                if (root.NamedChildCount > 0)
+                var namedChildCount = TSApi.ts_node_named_child_count(root);
+                if (namedChildCount > 0)
                 {
-                    var firstNamed = root.NamedChild(0);
-                    Console.Error.WriteLine($"First named child: {firstNamed.Type}");
+                    var firstNamed = TSApi.ts_node_named_child(root, 0);
+                    Console.Error.WriteLine($"First named child: {ReadUtf8(TSApi.ts_node_type(firstNamed))}");
                 }
 
-                // Sibling navigation
-                var sibling = firstChild.NextSibling;
-                if (!sibling.IsNull)
-                    Console.Error.WriteLine($"Next sibling: {sibling.Type}");
+                // Sibling
+                var sibling = TSApi.ts_node_next_sibling(firstChild);
+                if (!TSApi.ts_node_is_null(sibling))
+                    Console.Error.WriteLine($"Next sibling: {ReadUtf8(TSApi.ts_node_type(sibling))}");
 
                 // Parent
-                var parent = firstChild.Parent;
-                Console.Error.WriteLine($"Parent of first child: {parent.Type} (eq root: {parent == root})");
+                var parent = TSApi.ts_node_parent(firstChild);
+                Console.Error.WriteLine($"Parent of first child: {ReadUtf8(TSApi.ts_node_type(parent))} (eq root: {TSApi.ts_node_eq(parent, root)})");
 
                 // IsNamed, IsMissing, HasError
-                Console.Error.WriteLine($"First child IsNamed: {firstChild.IsNamed}");
-                Console.Error.WriteLine($"First child IsMissing: {firstChild.IsMissing}");
-                Console.Error.WriteLine($"First child HasError: {firstChild.HasError}");
+                Console.Error.WriteLine($"First child IsNamed: {TSApi.ts_node_is_named(firstChild)}");
+                Console.Error.WriteLine($"First child IsMissing: {TSApi.ts_node_is_missing(firstChild)}");
+                Console.Error.WriteLine($"First child HasError: {TSApi.ts_node_has_error(firstChild)}");
 
-                // ToString (S-expression)
-                var sexpr = firstChild.ToString();
-                var displayLen = Math.Min(sexpr.Length, 80);
-                Console.Error.WriteLine($"S-expression (truncated): {sexpr[..displayLen]}...");
+                // S-expression
+                var sexprPtr = TSApi.ts_node_string(firstChild);
+                try
+                {
+                    var sexpr = ReadUtf8(sexprPtr);
+                    var displayLen = Math.Min(sexpr.Length, 80);
+                    Console.Error.WriteLine($"S-expression (truncated): {sexpr[..displayLen]}...");
+                }
+                finally { TSApi.ts_node_string_free(sexprPtr); }
 
                 // Field name
-                var fn = root.FieldNameForChild(0);
-                Console.Error.WriteLine($"Field name for child 0: {fn ?? "(null)"}");
+                var fnPtr = TSApi.ts_node_field_name_for_child(root, 0);
+                Console.Error.WriteLine($"Field name for child 0: {(fnPtr != IntPtr.Zero ? ReadUtf8(fnPtr) : "(null)")}");
 
                 // DescendantForByteRange
                 if (filetext.Length > 0)
                 {
-                    var descendant = root.DescendantForByteRange(0, 0);
-                    Console.Error.WriteLine($"Descendant for byte 0: {descendant.Type}");
+                    var descendant = TSApi.ts_node_descendant_for_byte_range(root, 0, 0);
+                    Console.Error.WriteLine($"Descendant for byte 0: {ReadUtf8(TSApi.ts_node_type(descendant))}");
                 }
             }
         }
 
-        static void DemonstrateQuery(Language language, Tree tree)
+        static void DemonstrateQuery(IntPtr language, IntPtr tree, TSNode root)
         {
+            var querySource = "(identifier) @ident"u8;
+            var queryPtr = TSApi.ts_query_new(language, querySource, (uint)querySource.Length,
+                out uint errorOffset, out TSQueryError errorType);
+
+            if (queryPtr == IntPtr.Zero)
+            {
+                Console.Error.WriteLine($"Query error: type={errorType}, offset={errorOffset}");
+                return;
+            }
             try
             {
-                using var query = new Query(language, "(identifier) @ident");
-                Console.Error.WriteLine($"Query compiled: PatternCount={query.PatternCount}, CaptureCount={query.CaptureCount}");
+                Console.Error.WriteLine($"Query compiled: PatternCount={TSApi.ts_query_pattern_count(queryPtr)}, CaptureCount={TSApi.ts_query_capture_count(queryPtr)}");
 
-                var captureName = query.CaptureNameForId(0);
-                Console.Error.WriteLine($"Capture name 0: @{captureName}");
+                var captureNamePtr = TSApi.ts_query_capture_name_for_id(queryPtr, 0, out uint nameLen);
+                Console.Error.WriteLine($"Capture name 0: @{ReadUtf8(captureNamePtr)}");
 
-                var predicates = query.PredicatesForPattern(0);
-                Console.Error.WriteLine($"Predicates for pattern 0: {predicates.Length} steps");
+                var predicatesPtr = TSApi.ts_query_predicates_for_pattern(queryPtr, 0, out uint stepCount);
+                Console.Error.WriteLine($"Predicates for pattern 0: {stepCount} steps");
 
-                Console.Error.WriteLine($"Is pattern 0 rooted: {query.IsPatternRooted(0)}");
+                Console.Error.WriteLine($"Is pattern 0 rooted: {TSApi.ts_query_is_pattern_rooted(queryPtr, 0)}");
 
-                var start = query.StartByteForPattern(0);
-                var end = query.EndByteForPattern(0);
+                var start = TSApi.ts_query_start_byte_for_pattern(queryPtr, 0);
+                var end = TSApi.ts_query_end_byte_for_pattern(queryPtr, 0);
                 Console.Error.WriteLine($"Pattern 0 byte range: {start}-{end}");
 
-                // 零分配路径
-                using var cursor = new QueryCursor();
-                cursor.Exec(query, tree.RootNode);
-
-                int matchCount = 0;
-                while (cursor.NextMatch(out QueryMatch match))
+                // 零分配路径：直接迭代 TSQueryMatch
+                var cursor = TSApi.ts_query_cursor_new();
+                try
                 {
-                    matchCount++;
-                    if (matchCount <= 5)
+                    TSApi.ts_query_cursor_exec(cursor, queryPtr, root);
+
+                    int matchCount = 0;
+                    while (TSApi.ts_query_cursor_next_match(cursor, out TSQueryMatch match))
                     {
-                        foreach (var capture in match.Captures)
+                        matchCount++;
+                        if (matchCount <= 5)
                         {
-                            Console.Error.WriteLine($"  Match {match.Id}: @{capture.Name} = {capture.Node.Type} at {capture.Node.StartPoint}");
+                            var nativeSize = Marshal.SizeOf<TSQueryCapture>();
+                            for (int i = 0; i < match.capture_count; i++)
+                            {
+                                var cap = Marshal.PtrToStructure<TSQueryCapture>(
+                                    match.captures + i * nativeSize);
+                                var capNamePtr = TSApi.ts_query_capture_name_for_id(queryPtr, cap.index, out _);
+                                Console.Error.WriteLine(
+                                    $"  Match {match.id}: @{ReadUtf8(capNamePtr)} = " +
+                                    $"{ReadUtf8(TSApi.ts_node_type(cap.node))} at {FormatPoint(TSApi.ts_node_start_point(cap.node))}");
+                            }
                         }
                     }
+                    Console.Error.WriteLine($"Total matches: {matchCount}");
                 }
-                Console.Error.WriteLine($"Total matches (zero-alloc path): {matchCount}");
+                finally { TSApi.ts_query_cursor_delete(cursor); }
             }
-            catch (QueryException ex)
-            {
-                Console.Error.WriteLine($"Query error: {ex.Message} (type={ex.Error}, offset={ex.ErrorOffset})");
-            }
+            finally { TSApi.ts_query_delete(queryPtr); }
         }
 
-        static void DemonstrateQueryMatches(Language language, Tree tree)
+        static void DemonstrateQueryMatches(IntPtr language, IntPtr tree, TSNode root)
         {
+            var querySource = "(identifier) @ident"u8;
+            var queryPtr = TSApi.ts_query_new(language, querySource, (uint)querySource.Length,
+                out uint errorOffset, out TSQueryError errorType);
+
+            if (queryPtr == IntPtr.Zero)
+            {
+                Console.Error.WriteLine($"Query error: type={errorType}, offset={errorOffset}");
+                return;
+            }
             try
             {
-                using var query = new Query(language, "(identifier) @ident");
-                using var cursor = new QueryCursor();
-                cursor.Exec(query, tree.RootNode);
-
-                // IEnumerable 路径
-                var matches = cursor.Matches.ToList();
-                Console.Error.WriteLine($"Total matches (IEnumerable): {matches.Count}");
-
-                foreach (var match in matches.Take(3))
+                var cursor = TSApi.ts_query_cursor_new();
+                try
                 {
-                    Console.Error.WriteLine($"  Match {match.Id} (pattern {match.PatternIndex}):");
-                    foreach (var capture in match.Captures)
+                    TSApi.ts_query_cursor_exec(cursor, queryPtr, root);
+
+                    // 收集所有匹配
+                    var allMatches = new List<(uint id, ushort patternIndex, List<(string name, string type)> captures)>();
+                    var nativeSize = Marshal.SizeOf<TSQueryCapture>();
+
+                    while (TSApi.ts_query_cursor_next_match(cursor, out TSQueryMatch match))
                     {
-                        Console.Error.WriteLine($"    @{capture.Name} = {capture.Node.Type}");
+                        var caps = new List<(string, string)>();
+                        for (int i = 0; i < match.capture_count; i++)
+                        {
+                            var cap = Marshal.PtrToStructure<TSQueryCapture>(
+                                match.captures + i * nativeSize);
+                            var namePtr = TSApi.ts_query_capture_name_for_id(queryPtr, cap.index, out _);
+                            caps.Add((ReadUtf8(namePtr), ReadUtf8(TSApi.ts_node_type(cap.node))));
+                        }
+                        allMatches.Add((match.id, match.pattern_index, caps));
+                    }
+
+                    Console.Error.WriteLine($"Total matches (collected): {allMatches.Count}");
+
+                    foreach (var m in allMatches.Take(3))
+                    {
+                        Console.Error.WriteLine($"  Match {m.id} (pattern {m.patternIndex}):");
+                        foreach (var c in m.captures)
+                            Console.Error.WriteLine($"    @{c.name} = {c.type}");
                     }
                 }
+                finally { TSApi.ts_query_cursor_delete(cursor); }
             }
-            catch (QueryException ex)
+            finally { TSApi.ts_query_delete(queryPtr); }
+        }
+
+        static void DemonstrateTreeCopyAndDiff(IntPtr tree)
+        {
+            var copy = TSApi.ts_tree_copy(tree);
+            try
             {
-                Console.Error.WriteLine($"Query error: {ex.Message}");
+                var copyRoot = TSApi.ts_tree_root_node(copy);
+                Console.Error.WriteLine($"Tree copy root: {ReadUtf8(TSApi.ts_node_type(copyRoot))} (children: {TSApi.ts_node_child_count(copyRoot)})");
+
+                var changedPtr = TSApi.ts_tree_get_changed_ranges(tree, copy, out uint changedCount);
+                try
+                {
+                    Console.Error.WriteLine($"Changed ranges (no edit): {changedCount}");
+                }
+                finally { TSApi.ts_tree_get_changed_ranges_free(changedPtr); }
+
+                var includedPtr = TSApi.ts_tree_included_ranges(tree, out uint includedCount);
+                try
+                {
+                    Console.Error.WriteLine($"Included ranges: {includedCount}");
+                }
+                finally { TSApi.ts_tree_included_ranges_free(includedPtr); }
+
+                var langPtr = TSApi.ts_tree_language(tree);
+                Console.Error.WriteLine($"Tree language: {ReadUtf8(TSApi.ts_language_name(langPtr))}");
             }
+            finally { TSApi.ts_tree_delete(copy); }
         }
 
-        static void DemonstrateTreeCopyAndDiff(Tree tree)
+        static void DemonstrateLanguageSymbols(IntPtr language)
         {
-            using var copy = tree.Copy();
-            Console.Error.WriteLine($"Tree copy root: {copy.RootNode.Type} (children: {copy.RootNode.ChildCount})");
-
-            var changedRanges = copy.GetChangedRanges(tree);
-            Console.Error.WriteLine($"Changed ranges (no edit): {changedRanges.Length}");
-
-            var included = tree.IncludedRanges;
-            Console.Error.WriteLine($"Included ranges: {included.Length}");
-
-            using var lang = tree.Language;
-            Console.Error.WriteLine($"Tree language: {lang.Name}");
-        }
-
-        static void DemonstrateLanguageSymbols(Language language)
-        {
-            var identSymbol = language.SymbolForName("identifier", true);
+            var identName = "identifier"u8;
+            var identSymbol = TSApi.ts_language_symbol_for_name(language, identName, (uint)identName.Length, true);
             Console.Error.WriteLine($"Symbol for 'identifier': {identSymbol}");
 
-            var symbolName = language.SymbolName(identSymbol);
+            var symbolName = ReadUtf8(TSApi.ts_language_symbol_name(language, identSymbol));
             Console.Error.WriteLine($"Symbol name for {identSymbol}: {symbolName}");
 
-            var symbolType = language.SymbolType(identSymbol);
+            var symbolType = TSApi.ts_language_symbol_type(language, identSymbol);
             Console.Error.WriteLine($"Symbol type for {identSymbol}: {symbolType}");
 
-            var fieldCount = language.FieldCount;
+            var fieldCount = TSApi.ts_language_field_count(language);
             Console.Error.WriteLine($"Field count: {fieldCount}");
             if (fieldCount > 0)
             {
-                var fieldName = language.FieldNameForId(1);
+                var fieldName = ReadUtf8(TSApi.ts_language_field_name_for_id(language, 1));
                 Console.Error.WriteLine($"Field name for id 1: {fieldName}");
-                if (fieldName != null)
+                if (fieldName != "(null)")
                 {
-                    var fieldId = language.FieldIdForName(fieldName);
+                    var fieldNameBytes = Encoding.UTF8.GetBytes(fieldName);
+                    var fieldId = TSApi.ts_language_field_id_for_name(language, fieldNameBytes, (uint)fieldNameBytes.Length);
                     Console.Error.WriteLine($"Field id for '{fieldName}': {fieldId}");
                 }
             }
 
-            using var langCopy = language.Copy();
-            Console.Error.WriteLine($"Language copy name: {langCopy.Name}");
+            var langCopy = TSApi.ts_language_copy(language);
+            try
+            {
+                Console.Error.WriteLine($"Language copy name: {ReadUtf8(TSApi.ts_language_name(langCopy))}");
+            }
+            finally { TSApi.ts_language_delete(langCopy); }
         }
     }
 }
