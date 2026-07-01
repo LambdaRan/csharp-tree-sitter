@@ -4,7 +4,7 @@ echo Making tree-sitter on WINDOWS
 
 cd /d "%~dp0"
 
-set "OUTDIR=..\..\out"
+set "OUTDIR=..\..\out\%1"
 
 :: ---- Detect Visual Studio via vswhere ----
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -36,8 +36,8 @@ if "%1"=="clean" goto :clean
 
 if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 
-nmake /f Makefile clean >nul 2>&1
-nmake /f Makefile
+nmake /f Makefile OUTDIR="%OUTDIR%" clean >nul 2>&1
+nmake /f Makefile OUTDIR="%OUTDIR%"
 if errorlevel 1 (
     echo Error: Build failed.
     exit /b 1
@@ -48,5 +48,5 @@ echo Build succeeded: %OUTDIR%\tree-sitter.dll
 goto :eof
 
 :clean
-nmake /f Makefile clean >nul 2>&1
+nmake /f Makefile OUTDIR="%OUTDIR%" clean >nul 2>&1
 echo Clean done.

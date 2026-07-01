@@ -1,12 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>TreeSitter.Wrap</RootNamespace>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <PackageId>TreeSitter.TSWrap</PackageId>
+    <Description>High-level C# wrapper for tree-sitter</Description>
+    <PackageTags>tree-sitter;parser;wrapper</PackageTags>
+  </PropertyGroup>
+  
   <ItemGroup>
     <ProjectReference Include="../TSBind/TSBind.csproj" />
   </ItemGroup>

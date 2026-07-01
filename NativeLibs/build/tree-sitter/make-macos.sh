@@ -2,7 +2,7 @@
 
 set -e
 
-echo Making tree-sitter on LINUX
+echo Making tree-sitter on MACOS
 
 cd "$(dirname "$0")"
 
@@ -13,15 +13,15 @@ mkdir -p "$OUTDIR"
 
 # Clean
 if [ "$1" = "clean" ]; then
-    rm -f "$OUTDIR/libtree-sitter.so"
+    rm -f "$OUTDIR/libtree-sitter.dylib"
     echo Clean done.
     exit 0
 fi
 
 # Build using upstream Makefile with amalgamated source
-make -C "$SRCDIR" AMALGAMATED=1 libtree-sitter.so
+make -C "$SRCDIR" AMALGAMATED=1 libtree-sitter.dylib
 
-cp "$SRCDIR/libtree-sitter.so" "$OUTDIR/"
+cp "$SRCDIR/libtree-sitter.dylib" "$OUTDIR/"
 
 echo
-echo "Build succeeded: $OUTDIR/libtree-sitter.so"
+echo "Build succeeded: $OUTDIR/libtree-sitter.dylib"
