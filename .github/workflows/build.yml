@@ -18,19 +18,6 @@ jobs:
           name: native-linux-x64
           path: NativeLibs/out/
 
-  build-native-linux-arm64:
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Build tree-sitter for linux-arm64
-        run: NativeLibs/build/tree-sitter/make-linux.sh linux-arm64
-      - uses: actions/upload-artifact@v4
-        with:
-          name: native-linux-arm64
-          path: NativeLibs/out/
-
   build-native-macos-arm64:
     runs-on: macos-14
     steps:
@@ -42,19 +29,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: native-macos-arm64
-          path: NativeLibs/out/
-
-  build-native-macos-intel:
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Build tree-sitter for osx-x64
-        run: NativeLibs/build/tree-sitter/make-macos.sh osx-x64
-      - uses: actions/upload-artifact@v4
-        with:
-          name: native-macos-intel
           path: NativeLibs/out/
 
   build-native-windows-x64:
@@ -76,9 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-native-linux-x64
-      - build-native-linux-arm64
       - build-native-macos-arm64
-      - build-native-macos-intel
       - build-native-windows-x64
     steps:
       - uses: actions/checkout@v4
