@@ -1,13 +1,15 @@
 <Solution>
   <Folder Name="/解决方案项/">
+    <File Path=".github/workflows/build.yml" />
     <File Path=".gitignore" />
     <File Path=".gitmodules" />
+    <File Path="Directory.Build.props" />
     <File Path="LICENSE" />
     <File Path="README.md" />
   </Folder>
   <Project Path="NativeLibs/NativeLibs.csproj" />
-  <Project Path="TSBind/TSBind.csproj" />
   <Project Path="TSBind.Test/lua/TSBind.TestLua.csproj" />
-  <Project Path="TSWrap/TSWrap.csproj" />
+  <Project Path="TSBind/TSBind.csproj" />
   <Project Path="TSWrap.Test/lua/TSWrap.TestLua.csproj" />
+  <Project Path="TSWrap/TSWrap.csproj" />
 </Solution>
