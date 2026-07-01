@@ -1,6 +1,12 @@
 name: build
 
-on: [push]
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.1.0), leave empty for CI build'
+        required: false
 
 jobs:
   # ── Native library builds (parallel) ──────────────────────────
@@ -69,10 +75,20 @@ jobs:
           path: NativeLibs/out
 
       - name: Pack TSBind
-        run: dotnet pack TSBind/TSBind.csproj -c Release -p:VersionSuffix=ci.${{ github.run_number }}
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            dotnet pack TSBind/TSBind.csproj -c Release -p:Version=${{ inputs.version }}
+          else
+            dotnet pack TSBind/TSBind.csproj -c Release -p:VersionSuffix=ci.${{ github.run_number }}
+          fi
 
       - name: Pack TSWrap
-        run: dotnet pack TSWrap/TSWrap.csproj -c Release -p:VersionSuffix=ci.${{ github.run_number }}
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            dotnet pack TSWrap/TSWrap.csproj -c Release -p:Version=${{ inputs.version }}
+          else
+            dotnet pack TSWrap/TSWrap.csproj -c Release -p:VersionSuffix=ci.${{ github.run_number }}
+          fi
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v4
