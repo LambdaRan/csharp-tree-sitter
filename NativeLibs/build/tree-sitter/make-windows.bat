@@ -25,7 +25,7 @@ if not defined VS_INSTALL_DIR (
 
 echo Using Visual Studio: !VS_INSTALL_DIR!
 
-call "!VS_INSTALL_DIR!\Common7\Tools\VsDevCmd.bat"
+call "!VS_INSTALL_DIR!\Common7\Tools\VsDevCmd.bat" -arch=amd64
 if errorlevel 1 (
     echo Error: Failed to initialize VS Developer environment.
     exit /b 1
