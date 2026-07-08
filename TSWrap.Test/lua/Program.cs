@@ -1,5 +1,7 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using TreeSitter.Bind;
 using TreeSitter.Wrap;
 
 namespace TSWrap.TestLua;
@@ -13,6 +15,11 @@ internal class Program
 		Console.OutputEncoding = gbk;
 		Console.SetError(new StreamWriter(Console.OpenStandardError(), gbk) { AutoFlush = true });
 		Console.WriteLine("=== TSWrap Test ===");
+
+		// Parser 解析路径回归测试（不依赖外部文件，始终先跑）：
+		// 校验 Parse(string)（零拷贝回调）与 Parse(TSInput)（透传）路径产出正确的 UTF-16LE 树。
+		RunCharacterization();
+		Console.Error.WriteLine("\n=== Parser Characterization OK ===");
 
 		if (args.Length < 1) {
 			Console.WriteLine("Usage: TSWrap.TestLua <file.lua>");
@@ -338,5 +345,181 @@ internal class Program
 		// 恢复默认
 		parser.IncludedRanges = Array.Empty<TreeSitter.Wrap.Range>();
 		Console.Error.WriteLine($"After reset — count: {parser.IncludedRanges.Length}");
+	}
+
+	// ---------- Parser 解析路径回归测试 ----------
+	// Parse(string) 走 ts_parser_parse 零拷贝回调路径；Parse(TSInput) 透传 ts_parser_parse。
+
+	static void Assert(bool cond, string msg)
+	{
+		if (!cond) throw new Exception($"ASSERT FAILED: {msg}");
+	}
+
+	static void RunCharacterization()
+	{
+		using var language = new Language(_LuaLanguagePtr);
+		using var parser = new Parser(language);
+
+		// 纯 ASCII
+		CheckSnippet(parser, "local x = 1\n");
+		// 含非 ASCII（中文）注释：验证 UTF-16LE 多字节字符经回调正确送达
+		CheckSnippet(parser, "-- 注释测试\n");
+		// 空串边界
+		CheckSnippet(parser, "");
+
+		// 回调版 Parse(TSInput)：外部构造 TSInput 透传给 ts_parser_parse
+		TestParseTsInput(parser);
+
+		// 安全委托回调版 Parse(TsInputRead)：调用方零 unsafe
+		TestParseDelegate(parser);
+	}
+
+	static void CheckSnippet(Parser parser, string src)
+	{
+		// Parse(string)：ts_parser_parse + 零拷贝回调路径
+		using var tree = parser.Parse(src);
+		Assert(tree.IsUtf16LE, "IsUtf16LE");
+
+		var root = tree.RootNode;
+		Assert(root.Type == "chunk", $"root.Type == 'chunk' (got '{root.Type}')");
+		Assert(root.StartByte == 0, "root.StartByte == 0");
+		Assert(root.EndByte == (uint)(src.Length * 2),
+			$"root.EndByte == src.Length*2 ({root.EndByte} vs {src.Length * 2})");
+		Assert(!root.HasError, "root.HasError == false (编码或字节送达有误)");
+		AssertOffsetsEvenAndInRange(root, (uint)(src.Length * 2));
+
+		// 增量解析：传 old_tree 复用，结果应一致
+		using var tree2 = parser.Parse(src, tree);
+		Assert(tree2.RootNode.EndByte == (uint)(src.Length * 2), "incremental root.EndByte");
+		Assert(!tree2.RootNode.HasError, "incremental root.HasError == false");
+	}
+
+	static void AssertOffsetsEvenAndInRange(Node node, uint totalBytes)
+	{
+		Assert(node.StartByte % 2 == 0, $"StartByte even ({node.Type}:{node.StartByte})");
+		Assert(node.EndByte % 2 == 0, $"EndByte even ({node.Type}:{node.EndByte})");
+		Assert(node.StartByte <= totalBytes, $"StartByte in range ({node.Type}:{node.StartByte})");
+		Assert(node.EndByte <= totalBytes, $"EndByte in range ({node.Type}:{node.EndByte})");
+		for (uint i = 0; i < node.ChildCount; i++)
+			AssertOffsetsEvenAndInRange(node.Child(i), totalBytes);
+	}
+
+	// ---------- 回调版 Parse(TSInput) 测试 ----------
+	// 自行构造 TSInput（pin string + 本地 read 回调），透传给 Parser.Parse(TSInput)。
+
+	[StructLayout(LayoutKind.Sequential)]
+	private unsafe struct TestPayload { public byte* Data; public uint Length; }
+
+	[UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+	private static unsafe byte* TestReadCallback(void* payload, uint byteIndex, TSPoint position, uint* bytesRead)
+	{
+		var p = (TestPayload*)payload;
+		if (byteIndex >= p->Length) { *bytesRead = 0; return p->Data; }
+		*bytesRead = p->Length - byteIndex;
+		return p->Data + byteIndex;
+	}
+
+	static unsafe void TestParseTsInput(Parser parser)
+	{
+		const string src = "local x = 1\n";
+		fixed (char* c = src)
+		{
+			TestPayload payload = new() { Data = (byte*)c, Length = (uint)src.Length * 2u };
+			TestPayload* pp = &payload;
+			delegate* unmanaged[Cdecl]<void*, uint, TSPoint, uint*, byte*> readFn = &TestReadCallback;
+
+			// UTF-16LE：IsUtf16LE 应推导为 true，且与 Parse(string) 等价
+			var inputLE = new TSInput {
+				payload = (IntPtr)pp,
+				read = (IntPtr)readFn,
+				encoding = TSInputEncoding.TSInputEncodingUTF16LE,
+				decode = IntPtr.Zero,
+			};
+			using var treeLE = parser.Parse(inputLE);
+			Assert(treeLE.IsUtf16LE, "Parse(TSInput) UTF16LE -> IsUtf16LE");
+			var rootLE = treeLE.RootNode;
+			Assert(rootLE.Type == "chunk", "Parse(TSInput) root.Type == chunk");
+			Assert(rootLE.EndByte == (uint)(src.Length * 2), "Parse(TSInput) EndByte");
+			Assert(!rootLE.HasError, "Parse(TSInput) HasError == false");
+
+			// UTF-8 encoding：IsUtf16LE 应推导为 false（不关心解析结果）
+			var input8 = new TSInput {
+				payload = (IntPtr)pp,
+				read = (IntPtr)readFn,
+				encoding = TSInputEncoding.TSInputEncodingUTF8,
+				decode = IntPtr.Zero,
+			};
+			using var tree8 = parser.Parse(input8);
+			Assert(!tree8.IsUtf16LE, "Parse(TSInput) UTF8 -> IsUtf16LE false");
+
+			// 带 old_tree 的增量路径
+			using var treeLE2 = parser.Parse(inputLE, treeLE);
+			Assert(!treeLE2.RootNode.HasError, "Parse(TSInput) incremental HasError == false");
+		}
+	}
+
+	// ---------- 安全委托回调版 Parse(TsInputRead) 测试 ----------
+
+	static void TestParseDelegate(Parser parser)
+	{
+		// 1. 等价：delegate(UTF16LE) 与 Parse(string) 产等价树
+		CheckDelegateEquivalent(parser, "local x = 1\n");
+		CheckDelegateEquivalent(parser, "-- 注释测试\n");
+		CheckDelegateEquivalent(parser, "");
+
+		// 2. 编码推导：UTF8 -> IsUtf16LE false
+		byte[] b = "x"u8.ToArray();
+		using var t8 = parser.Parse(
+			(uint idx, Point _) => idx < (uint)b.Length ? (ReadOnlySpan<byte>)b.AsSpan((int)idx) : default,
+			TSInputEncoding.TSInputEncodingUTF8);
+		Assert(!t8.IsUtf16LE, "Parse(delegate,UTF8) -> IsUtf16LE false");
+
+		// 3. 异常传播：委托抛异常 -> Parse 原样重抛（非崩溃、非静默半树）
+		var ex = AssertThrows<InvalidOperationException>(() =>
+			parser.Parse((uint idx, Point pos) => throw new InvalidOperationException("boom"),
+				TSInputEncoding.TSInputEncodingUTF8));
+		Assert(ex.Message == "boom", "delegate exception rethrown with original message");
+
+		// 4. Custom encoding 拒绝
+		AssertThrows<ArgumentException>(() =>
+			parser.Parse((uint idx, Point pos) => default, TSInputEncoding.TSInputEncodingCustom));
+
+		// 5. 增量
+		string src = "local x = 1\n";
+		using var tree1 = parser.Parse(src);
+		using var tree2 = parser.Parse(
+			(uint idx, Point _) => MemoryMarshal.AsBytes(src.AsSpan((int)(idx / 2))),
+			TSInputEncoding.TSInputEncodingUTF16LE, tree1);
+		Assert(!tree2.RootNode.HasError, "delegate incremental HasError == false");
+	}
+
+	static void CheckDelegateEquivalent(Parser parser, string src)
+	{
+		using var tree1 = parser.Parse(src);
+		using var tree2 = parser.Parse(
+			(uint idx, Point _) => MemoryMarshal.AsBytes(src.AsSpan((int)(idx / 2))),
+			TSInputEncoding.TSInputEncodingUTF16LE);
+		Assert(tree2.IsUtf16LE, "delegate IsUtf16LE");
+		AssertTreesEquivalent(tree1.RootNode, tree2.RootNode, src.Length * 2);
+	}
+
+	static T AssertThrows<T>(Action action) where T : Exception
+	{
+		try { action(); }
+		catch (T ex) { return ex; }
+		catch (Exception ex) { throw new Exception($"Expected {typeof(T).Name}, got {ex.GetType().Name}: {ex.Message}"); }
+		throw new Exception($"Expected {typeof(T).Name}, but no exception was thrown");
+	}
+
+	static void AssertTreesEquivalent(Node a, Node b, int totalBytes)
+	{
+		Assert(a.Type == b.Type, $"Type eq ('{a.Type}' vs '{b.Type}')");
+		Assert(a.StartByte == b.StartByte, "StartByte eq");
+		Assert(a.EndByte == b.EndByte, "EndByte eq");
+		Assert(a.ChildCount == b.ChildCount, "ChildCount eq");
+		Assert(a.HasError == b.HasError, "HasError eq");
+		AssertOffsetsEvenAndInRange(b, (uint)totalBytes);
+		for (uint i = 0; i < a.ChildCount; i++)
+			AssertTreesEquivalent(a.Child(i), b.Child(i), totalBytes);
 	}
 }
